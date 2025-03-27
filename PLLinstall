@@ -1,0 +1,121 @@
+#!/bin/execlineb -S1
+#
+# PLLinstall <block-dev> [--embedded] [--write] doggy
+
+define BLKDEV "${1}"
+#define EMBED doggy
+# must specify a block device
+ifelse -n { eltest -b ${BLKDEV} } {
+	foreground { echo ${0}: install the PLL boot loader to disk MBR }
+	foreground { echo useage: ${0} <block-dev> }
+	exit 1
+}
+# it must be GPT partitioned
+ifelse -n {
+	redirfd -w 2 /dev/null
+	backtick -E sig {
+		dd if=${BLKDEV} bs=1 count=8 skip=512
+	}
+	eltest "EFI PART" = "${sig}"
+} {
+	foreground { echo ${BLKDEV} does not have a valid GPT signature }
+	foreground { echo PLL requires GPT to install }
+	exit 2
+}
+
+#here is the start of our second bank of code space
+backtick -E BANKTWOSTART {
+	hexdump ${BLKDEV} --skip=552 --length=8 --format 1/8\ \"%d\"
+}
+
+ifelse { eltest "${BANKTWOSTART}" -lt 3 } {
+	foreground { echo ${BLKDEV} does not have a valid GPT }
+	foreground { echo PLL requires GPT to install }
+	exit 3
+}
+
+#check each partition and find the logically first on the device
+backtick -E PARTITIONCOUNT {
+	hexdump ${BLKDEV} --skip=592 --length=4 --format 1/4\ \"%d\"
+}
+piperw 7 8
+piperw 9 10
+foreground {
+	fdmove -c 1 8
+	foreground { echo ${PARTITIONCOUNT} }
+	fdmove -c 1 10
+	echo 999999999999
+}
+foreground {
+	loopwhilex -o 77
+	fdmove -c 0 7
+	forstdin -o 11 -E PART
+	fdmove -c 0 9
+	forstdin -o 11 -E SMALL
+	backtick -E SKIP { expr ${PART} * 128 + 928 }
+	backtick -E FLB {
+		hexdump ${BLKDEV} --skip=${SKIP} --length=8 --format 1/8\ \"%d\"
+	}
+	#keep the smaller partition starting LBA
+	foreground {
+		fdmove -c 1 10
+		ifelse { test ${FLB} -ne 0 -a ${FLB} -lt ${SMALL} } {
+			echo "${FLB}"
+		}
+		echo "${SMALL}"
+	}
+	backtick -E NXTPART {
+		foreground { expr ${PART} - 1 }
+		exit 0
+	}
+	if { eltest ${NXTPART} -ne 0 }
+	foreground {
+		fdmove -c 1 8
+		echo ${NXTPART}
+	}
+	exit 77
+}
+
+fdclose 7
+fdclose 8
+fdclose 10
+fdswap 0 9
+withstdinas -E SMALL
+fdswap 0 9
+fdclose 9
+
+backtick -E BANKTWOSIZE {
+	foreground { expr ${SMALL} - ${BANKTWOSTART} }
+	exit 0
+}
+ifelse { eltest 2 -gt "${BANKTWOSIZE}" } {
+	foreground { echo not enough room for PLL between the GPT and the first partition (${BANKTWOSIZE}) }
+	exit 1
+}
+foreground { echo found $BANKTWOSIZE free blocks between the GPT and the first partition }
+foreground { echo nasm -o PLL -DBANKTWOSTART=${BANKTWOSTART} -DBANKTWOSIZE=${BANKTWOSIZE} PLL.asm }
+ifelse -n { nasm -o PLL -DBANKTWOSTART=${BANKTWOSTART} -DBANKTWOSIZE=${BANKTWOSIZE} PLL.asm } {
+	foreground { echo PLL failed to assemble }
+}
+
+backtick -E SKIP {
+	foreground { expr ${BANKTWOSTART} + 1 }
+	exit 0
+}
+ifelse { eltest "${2}" = "--write" } {
+	foreground { echo dd if=PLL of=${BLKDEV} bs=446 count=1 }
+	foreground { dd if=PLL of=${BLKDEV} bs=446 count=1 }
+	foreground {
+		echo dd if=PLL of=${BLKDEV} bs=512 count=${BANKTWOSIZE} skip=${SKIP} seek=${BANKTWOSTART}
+	}
+	dd if=PLL of=${BLKDEV} bs=512 count=${BANKTWOSIZE} skip=${SKIP} seek=${BANKTWOSTART}
+}
+foreground { echo dd if=PLL of=${BLKDEV} bs=446 count=1 }
+foreground {
+	echo dd if=PLL of=${BLKDEV} bs=512 count=${BANKTWOSIZE} skip=${SKIP} seek=${BANKTWOSTART}
+}
+foreground { echo If you are serious: append --write to the command line }
+exit 0
+	
+#stablize the location of the command line?
+

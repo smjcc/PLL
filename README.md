@@ -50,7 +50,7 @@ hexdump ([util-linux][11]), dd, and test ([core-utils][12]).
 
 * install [execline][10] via your package manager
 * install [nasm][9] via your package manager
-* clone PLL from codeberg into `/usr/src/PLL`  
+* clone PLL from codeberg/github/gitflic into `/usr/src/PLL`  
 or if gentoo, use the [ebuild][16] in my [overlay][15]
 * use a partition editor (fdisk, parted, etc) to install a [GPT][4]
 (GUID partiton table) to your target disk (e.g. /dev/sdb):  

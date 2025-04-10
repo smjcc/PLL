@@ -1,8 +1,11 @@
 ;;;
 ;;; PLL: Partition Linux Loader
 ;;;
-;;; (c) 2022-2024 Scott Jennings - All rights reserved as per GPLv3+:
+;;; (c) 2022-2025 Scott Jennings - All rights reserved as per GPLv3+:
 ;;;
+
+	%define VERSION	'0.1.0'
+
 ;    This program is free software: you can redistribute it and/or modify
 ;    it under the terms of the GNU General Public License as published by
 ;    the Free Software Foundation, either version 3 of the License, or
@@ -22,14 +25,53 @@
 
 ;;; Expects a valid GUID Partition Table (GPT), with a valid linux
 ;;; kernel image in each of up to the first four partitions (no filesystems)
+;;;
+;;; A kernel command line is stored in LBA0, and is preloaded
+;;; with 'PLL=v.v.v-xx.n', where 'v' are version numbers, and 'xx' is replaced
+;;; at boot time with the BIOS number of the boot device. This command
+;;; line option must exist and must be first.
+;;;
+;;; One of three possible boot scenarios are selected by the '.' located
+;;; between the 'xx' and the 'n' in the 'PLL=' command line option.
+;;; These three cases are '.', '+', and anything else:
+;;;
+;;;   In the case of '.':
 ;;; 
-;;; If ONETIME is defined, a byte at offset MBREND-1 in LBA0 (MBR) contains
-;;; two flag bits declaring which kernel will boot by default, and whether
-;;; to boot the other kernel once, clearing that flag in the MBR (LBA0).
+;;; At boot time, state of the keyboard shift keys determine which partition
+;;; the kernel will be loaded from:
+;;; 	no shift keys are down: partition 1 is selected.
+;;; 	a 'shift' key is down:  partition 2 is selected.
+;;; 	a 'ctrl' key is down:	partition 3 is selected.
+;;; 	an 'alt' key is down:	partition 4 is selected.
+;;; for each of these cases, the 'n' in the 'PLL=' option will be replaced
+;;; with the partition the kernel was actualled loaded from.
 ;;;
-;;; Loading of an external initramfs is *not* supported;
-;;; the initramfs should be compiled into the kernel.
+;;;   In the case of '+':
 ;;;
+;;; The kernel will be loaded from the partion number following the '+'
+;;; (at the 'n' position) in the command option..
+;;;
+;;;   In all other cases:
+;;;
+;;; The partition number following the character (which replaced the
+;;; '.')  will be 'xor'ed with 0b00000011 ('1' xor '2') so that a '1'
+;;; will become a '2', and vice versa. The kernel will be loaded from
+;;; the resulting partition number. Then, the character in the '.'
+;;; position, will be overwritten with '+' on disk in LBA0.
+;;; (the number following the '+' is unchanged on disk, or the
+;;; command line)
+;;;
+;;; This is effectively a 'one time boot'. If the command line is not
+;;; subsequently changed, the next boot will revert to the previous
+;;; partition number. Applications can look at the PLL option in the
+;;; command line in /proc/cmdline to check this character and determine
+;;; if we have booted in a 'one time boot' condition.
+;;;
+;;;
+;;; Loading of an external initmpfs is *not* supported.
+;;; When needed, the initmpfs should be compiled into the kernel.
+;;;
+;;; 
 ;;; This code assembles using NASM.
 ;;;
 ;;; FYI: search for "doggy" to find potentially unresolved issues.
@@ -37,24 +79,23 @@
 ;;; 
 ;;; Memory Usage/Map:
 ;;; 0x?????? - 0x07bff	stack
-;;; 0x007c00 - 0x007dff	PLL (446 bytes,PPT, 0x55aa - loaded here by BIOS )
-
+;;; 0x007c00 - 0x007dff	This is where the BIOS loads LBA0
 ;;; 		the following two lines presume a max 8 partition GPT:
-;;; 		2LBAs hold the MBR+GPT, 2LBAs hold the 8partition tables
-;;; 		4LBAs hold additional PLL code (bank-two second stage)
+;;; 		2LBAs hold the MBR(LBA0)+GPT, 2LBAs hold the 8partition tables
+;;; 		2LBAs hold additional PLL code (bank-two second stage)
 ;;; 0x007e00 - 0x008dff PLL loads the first 8 LBAs(4k) of the boot drive here
-;;;   0x8600 - 0x8dff  (2K of second stage PLL code space)
+;;;   0x8600 - 0x8dff  (1K of second stage PLL code space)
 	
 ;;; 		the following two lines presume a max 128 partition GPT:
 ;;; 		2LBAs hold the MBR+GPT, 32LBAs hold the 128partition tables
-;;; 		4LBAs hold additional PLL code (bank-two second stage)
+;;; 		2LBAs hold additional PLL code (bank-two second stage)
 ;;; 0x007e00 - 0x00cbff PLL loads the first 38 LBAs(19k) of the boot drive here
-;;;   0xc400 - 0xcbff  (2K of second stage PLL code space)
+;;;   0xc400 - 0xcbff  (1K of second stage PLL code space)
 	
 ;;; 0x010000 - 0x017fff	PLL loads the Real mode kernel header here (32Kb)
-;;; 0x018000 - 0x01dfff	kernel heap			; size: 24Kb
-;;; 0x01e000 - 0x01ffff	command line			; size: 8Kb
-;;; 0x020000 - 0x02ffff	disk read buffer for high moves ; size: 64Kb
+;;; 0x018000 - 0x01dfff	kernel heap				; size: 24Kb
+;;; 0x01e000 - 0x01ffff	command line copied to here from LBA0	; size: 8Kb
+;;; 0x020000 - 0x02ffff	disk read buffer for high moves		; size: 64Kb
 
 ;;; 0x100000 - +kernlen	protected-mode kernel
 
@@ -71,16 +112,15 @@
 	;; followed by one '.' for each group of logical block groups loaded
 	%define	KLAUNCH		'*' ;report kernel real mode code being executed
 	;; these are all fatal errors:
-	%define EXTERR		'E' ;LBA read/write unavailable (use CHS)
 	%define	A20ERR		'A' ;failed to enable A20
 	%define WRITEERR	'W' ;failed to write boot sector (ONETIMEBOOT)
-	%define	HDDERR		'R' ;failed to read from disk
-	%define SHORTREAD	'S' ;BIOS read less than requested
+	%define	HDDERR		'R' ;failed to read from disk via int13 ah=0x42
+	%define	HDDERRNOEXT	'r' ;failed to read from disk via int13 ah=0x02
 	%define GPTSIGERR	'G' ;GPT signature not found
 	%define	KSIGERR		'K' ;kernel signature not found
 	%define	KPROTOERR	'P' ;kernel protocol version incompatible
 	%define	KLOADHIERR	'H' ;kernel not to be loaded hi
-	
+
  	%define SECTORSPERGROUP	127 ;max sectors per BIOS read call
 
 	%define ORIGIN	0x7c00	;where the BIOS loads us to
@@ -88,13 +128,13 @@
 	%define	PPT	446	;offset into the MBR of the Protective PartTable
 	%define MBREND	PPT	;THIS IS OUR COMPLETE CODESPACE IN THE MBR
 
-;;; these are now passed upon nasm invocation
+;;; these are passed upon nasm invocation (by PLLinstall)
 ;;; if maximum 8 partitions in GPT:
 ;;; 	%define	BANKTWOSTART	4 ; bank two starts at LBA4
-;;; 	%define BANKTWOSIZE	4 ; length of bank two in logical blocks
+;;; 	%define BANKTWOSIZE	2 ; length of bank two in logical blocks
 ;;; if maximum 128 partitions in GPT:
 ;;; 	%define	BANKTWOSTART	34 ; bank two starts at LBA34
-;;; 	%define BANKTWOSIZE	4 ; length of bank two in logical blocks
+;;; 	%define BANKTWOSIZE	2 ; length of bank two in logical blocks
 	
 ;;; ============================================================
 	
@@ -116,15 +156,27 @@
 ;;; save the boot device number passed from the BIOS in dl
  	push	dx	; we read it in the stack at byte 0:0x7bfe (svd3byts)
 
+	;; check if the BIOS supports 'extended' calls.
 	mov	word bx, 0x55aa
 ;;;	mov	dl, [boot_drive] ;already in dl from bios
 	mov	ah, 0x41 	;see if extentions available
 	int	0x13
-	mov	al, EXTERR	;this version requires BIOS extentions
-	jc	short err_al
+	jc	short no_ext	; carry on return = no extentions
 
-	cmp	word bx, 0xaa55
-	jne	short err_al
+	xor	cx, cx
+	cmp	bx, 0xaa55	; bx = 0xaa55 = extentions available
+	je	short yes_ext
+
+no_ext:
+	;;; Read Drive Parameters (ah=0x08) to get the sectors per heads per cylinder
+	mov	ah, 0x08
+	int	0x13
+	and	cl, 0x3f	;[secs_per_head]
+ 	inc	dh		;[hds_per_cyl]
+	mov	ch, dh
+
+yes_ext:
+	push	cx		;save secs_per_head/hds_per_cyl to stack
 
 	mov	al, OURNAME1	; the boot loader has started, reading GPT
 	call	print_al
@@ -159,11 +211,23 @@ err:	jmp	short $		;hang forever (ints active)
 ;;	---------------
 
 ;;;---------------------------------------------------------
-;;;	read sectors via extened BIOS call ah=0x42 int0x13
+;;;	read sectors via extended BIOS call ah=0x42 int0x13
+;;; 	[xferLBA]    = LBA to start reading from (48bits)
+;;; 	[xferbuffer] = location in ram to read to (32bits)
+;;; 	[xferblocks] = number of logical blocks to read (16bits)
 ;;;---------------------------------------------------------
-	
+
+;;; typically invoked thus:
+;;; mov	dword [xferbuffer], 0x10000000	;where to put the data
+;;; mov	word [xferblocks], 64		;blocks/sectors to read
+;;; call disk_read
+
 disk_read:
-;;; DS:SI points to da_pack
+	;; if no BIOS extentions available, use the other read routine
+	cmp	byte [secs_per_head], 0
+	jne	short read_no_ext
+
+	;; DS:SI points to da_pack
 	mov	si, da_pack
 	mov	ah, 0x42
 	mov	dl, [boot_drive]
@@ -174,12 +238,56 @@ disk_read:
 	mov	al, HDDERR
 	jc	short err_al
 
- 	cmp	[xferblocks], bx
-	mov	al, SHORTREAD
- 	jne	short err_al
-
 	ret
 ;;; 	---
+
+;;;-------------------------------------------------------------------
+;;;
+;;; READ UP TO 128 LOGICAL BLOCKS USING BIOS INT13 AH=0x02 Cyl/Hds/Sec
+;;;
+;;; on call to INT13:
+;;;  AH=02, AL=sectors to read, CH=low 8 bits of cylinder number,
+;;;  CL = sector number 1-63 (bits 0-5) high two bits of cylinder (bits 6-7)
+;;;  DH = head number, DL = drive number (bit 7 set for hard disk),
+;;;  ES:BX -> data buffer
+;;;
+;;; on return:  CF set on error
+;;;
+;;; systems without BIOS extentions are very old, and usually use
+;;; much smaller storage devices:
+;;; 
+;;; with a 16bit LBA address, we get to the first 33.5MB of HDD
+;;; ( (2**16)*512 = 33554432 ) which should be enough for two kernels,
+;;; one in each of the first two partitions
+;;; 
+;;; (might not be too hard to extend this to 32bit LBA if needed)
+;;; (right now, reads beyond 33.5MB will wrap around)
+;;;-------------------------------------------------------------------
+
+read_no_ext:
+	mov	ax, [xferLBA]
+	div	byte [secs_per_head]
+	xor	cx, cx
+	mov	cl, ah
+ 	inc	cl		;sectors start with 1
+	xor	ah, ah
+	div	byte [hds_per_cyl]
+	mov	dh, ah		;head
+	mov	ch, al		;cyl
+
+;;; now ch=cyl, dh=head, cl=sector (bits 6+7 are 0)
+
+	mov	bx, [xferbuffer]
+	mov	es, [xferbuffer+2]
+	mov	dl, [boot_drive]
+	mov	al, [xferblocks]
+	mov	ah, 0x02	;read drive sectors command
+	int	0x13
+	mov	al, HDDERRNOEXT
+	jc	short err_al
+
+	ret
+;;;	---
 
 ;;;-----------------------------------------
 ;;; 		Print AL as one character
@@ -194,7 +302,7 @@ print_al:
 	
 
 ;;;-------------------------------------------------
-;;;		start of initialized data
+;;;		start of initialized data in LBA0
 ;;;-------------------------------------------------
 
 ;;;--------------------------------------------------------------
@@ -214,7 +322,9 @@ da_pack_end:
 
 ;;; this is the start of the command line handed to the kernel by PLL
 cmdline:
-	db	"PLL=0.0.2-"
+	db	"PLL="
+	db	VERSION
+	db	"-"
 cmdlinedev:
 	db	"xx"		;BIOS disk number we booted from (hex)
 ;;; if cmdlineonce is '.', the boot partition is decided by shift keys:
@@ -225,7 +335,7 @@ cmdlinedev:
 ;;; 
 ;;; If cmdlineonce is anything other than '.' or '+', then it will be
 ;;; changed to '+' and written back to disk, then the boot partion will
-;;; the value at cmdlinepart xored with 0x00000011 ( ascii '1' ^ '2' ).
+;;; the value at cmdlinepart xored with 0x00000011 ( ascii '1' xor '2' ).
 ;;; The value of cmdlinepart on disk is not changed.
 ;;; The effect is a one time boot of the "other" of partions 1 and 2
 ;;; note: if cmdlineonce is not '.' or '+', and cmdlinepart is not
@@ -238,7 +348,7 @@ cmdlinepart:
 	db	"1 "		;partiton number we loaded the kernel from
 ;;; this is the start of the user supplied command line
 commandline:
-	db	"slab_nomerge lockdown=confidentiality random.trust_cpu=off auto", 0
+	db	"", 0
 ;;; "quiet loglevel=0 tsx_async_abort=full,nosmt mds=full,nosmt l1tf=full,force nosmt=force kvm.nx_huge_pages=force ipv6.disable=1"
 ;;; 	times	256-($-commandline)	db	0
 
@@ -410,23 +520,31 @@ bdlo:	mov	[cmdlinedev], ax
 	mov	byte [cmdlineonce+0x200], '+' ;clear the one-time flag
 ;;; 	... and write MBR sector back to disk
 
-;;; DS:SI points to da_pack
-	mov	si, da_pack
-	xor	ax, ax
-	inc	al
-	mov	word [xferblocks], ax
-	mov	ah, 0x43	;exteneded write
+;;; we only every write to LBA0, so just use int13 ah=03 (not 'extended' call)
+;;; note that at present, failure to write the change back to disk will not
+;;; stop the kernel from being run, but 'one time boot' will become forever,
+;;; since the MBR (LBA0) will be unchanged.  The error is reported, if you're
+;;; fast enough to see it before the kernel blanks the screen.
+
+;;; to make the error 'hard', change the 'jnc .write_ok' to 'jc err_al', and
+;;; remove the 'call print_al'
+
+	mov	bx, MBR		; offset
+	xor	cx, cx		;0 sec/trk
+	mov	dx, cx		;0 hd
+	inc	cl		;first sector is 1
 	mov	dl, [boot_drive]
-	int	0x13
-
+	mov	ax, 0x0301	;write one sector
+	int	0x13		;write the modified MBR sector back
 	mov	al, WRITEERR
-	jc	err_al
+ 	jnc	.write_ok
+;;;	jc	err_al
 
- 	cmp	byte [xferblocks], 1
- 	jne	err_al
+	call	print_al	;dog this error is not fatal, should it be?
 
+.write_ok:
 	pop	ax		;restore boot partition
-	
+
 	xor	al, '1' ^ '2'	;boot the "other" partition this once
 
 ;;; normal boot, boots the partition stored in cmdlinepart
@@ -452,11 +570,12 @@ shift_boot:
 ;;; L or R SHIFT boots partition two.
 ;;; L or R CTRL boots partition three.
 ;;; L or R ALT boots partition four.
+;;; (else partition one)
 ;;; ----------------------------------------------------------
 	mov	ah, 0x12
 	int	0x16
 	push	ax
-	mov	ah, 0x01	;doggy sort of delay maybe
+	mov	ah, 0x01	;dog sort of delay maybe
 	int	0x16
 	mov	ah, 0x12
 	int	0x16
@@ -580,12 +699,13 @@ bootpart:
 
 ;;;	qword [0x258] prefered load address
 	pop	ds		       ; ds=0x0000 es=0x1000(kernel realmode segment)
+;;; copy the kernel command line from LBA0 to the kernel command line buffer
 	mov	si, cmdline
 	mov	di, 0xe000
 cmdcopy:
 	lodsb
 	stosb
-	test	al, al
+	test	al, al		; string is null terminated
 	jnz	short cmdcopy
 
     ; the protected mode part must be loaded at 0x100000
@@ -613,7 +733,7 @@ has_size:
  	div	ecx
 	inc	ax		; +1 potentially partial group
 	mov	cx, ax
-	
+
 	call	load_high
 
 wait_shift_keys_up:
@@ -626,13 +746,6 @@ wait_shift_keys_up:
 	mov	al, KLAUNCH	; starting the Kernel
 	call	print_al
 
-;;;	mov	ecx, 0x90000000		;doggy
-;;;honk:	dec	ecx
-;;;	jnz	honk
-;;;
-;;;	mov	al, '$'
-;;;	call	print_al
-	
 	cli
 	mov	ax, 0x1000
 	mov	ds, ax
@@ -646,7 +759,8 @@ wait_shift_keys_up:
 
 ;;;---------------------------------------------------------
 	
-;;; if UNDEFINED upon return, will jne if A20 is enabled, je if A20 is likely disabled
+;;; if 'UNDEFINED', upon return, will jne if A20 is enabled,
+;;;   je if A20 is likely disabled.
 ;;; else upon return, will je if A20 is enabled, jne if A20 is likely disabled
 ;;; crashes ax, es, and maybe cx
 check_a20_delay:
@@ -745,8 +859,23 @@ load_high:
  	ret
 ;;;	-----
 
+;;;---------------------------------------------------------
+;;; on entry ds:si points to NULL terminated string to print
+;;;---------------------------------------------------------
+ps_loop:	
+	call	print_al	; 3
+
+print_string:
+	lodsb			;+1
+	or	al, al		;+2
+	jnz	short ps_loop	;+2
+
+	ret			;+1=9
+;;; 	---
+
 ;;;---------------------------------------------------
 ;;; on entry dx contains value to print as hexadecimal
+;;; ( this is orphan code, but really useful for debugging )
 ;;;---------------------------------------------------
 
 print_dx_hex:
@@ -776,21 +905,8 @@ pdxh:
 ;;; 	----------------
 
 ;;;---------------------------------------------------------
-;;; on entry ds:si points to NULL terminated string to print
-;;;---------------------------------------------------------
-ps_loop:	
-	call	print_al	; 3
-
-print_string:
-	lodsb			;+1
-	or	al, al		;+2
-	jnz	short ps_loop	;+2
-
-	ret			;+1=9
-;;; 	---
-
-;;;---------------------------------------------------------
 ;;; on entry ss:sp points to NULL terminated string to print
+;;; ( this is orphan code, somewhat useful for debugging )
 ;;;---------------------------------------------------------
 
 print_string_following:	
@@ -799,27 +915,6 @@ print_string_following:
 	push	si
 	ret
 ;;; 	---
-
-;;;------------------------------------------------
-
-dump:
-	push	0x1000
-	pop	ds
-	xor	si, si
-	mov	cx, 512
-
-.loop:
-	lodsb
-	mov	ah, 0xe
-	mov	bx, 7
-	push	cx
-	int	0x10
-	pop	cx
-	dec	cx
-	jnz	short .loop
-
-	jmp	short $
-;;;	---------
 
 ;;;-----------------------------------------------------------------------
 ;;;	global descriptor table needed to set up protected mode
@@ -922,7 +1017,7 @@ part4_NAME:	resb	72
 
 ;;; LBA3: the next four GPT partition entries (if present)
 
-	times	(4*0x200)-($-MBR)	resb	1 ; bump past end of LBA3
+;;;	times	(4*0x200)-($-MBR)	resb	1 ; bump past end of LBA3
 
 ;;; to save code space these are pushed on the stack early
 ;;; and then read in place on the stack when needed
@@ -930,9 +1025,14 @@ part4_NAME:	resb	72
 
 ;;; this has to be hand changed when the data pushed to stack changes
 ;;; presently one words pushed
-	absolute STACK - (2*1)
+	absolute STACK - (2*2)
+;;; if following are 0, then there are bios exentions available
+secs_per_head:		;BIOS provided boot disk parameter
+	resb	1
+hds_per_cyl:		;BIOS provided boot disk parameter
+	resb	1
 boot_drive:		;BIOS provided boot disk device number
-	resw	1
+	resb	1
+	resb	1
 	
 ;;; ============================================================
-

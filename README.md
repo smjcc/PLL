@@ -19,7 +19,7 @@ partition names and [UUID][5]s.
 
 PLL loads and boots a kernel directly from a partition.  The partitioun
 contain only the kernel, no filesystem. (though the kernel can of course
-contain an [initmpfs][6])
+contain an [initmpfs][6]).
 
 PLL supports a [kernel command line][7] in the [boot sector][8], and
 the ability to boot from an alternative partition “one time only”

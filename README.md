@@ -39,7 +39,8 @@ locations.  The [execline][10] install script `PLLinstall` will
 compile PLL appropriately for your [GPT][4], and write the PLL sectors
 to the disk if instructed to do so.
 
-## Selecting the partition to load the kernel from `PLL=v.v.v-xx.n`
+## Selecting the partition to load the kernel from
+`PLL=v.v.v-xx.n`
 
 The kernel command line stored in LBA0, is preloaded with
 `PLL=v.v.v-xx.n`, where `v` are version numbers, and `xx` is replaced

@@ -61,7 +61,7 @@ partition the kernel will be loaded from:
 * an 'alt' key is down:	partition 4 is selected.
 
 for each of these cases, the `n` in the `PLL=` option will be replaced
-with the partition the kernel was actualled loaded from.
+with the partition number that the kernel was actualled loaded from.
 
 ### In the case of `+`
 
@@ -100,7 +100,7 @@ hexdump ([util-linux][11]), dd, and test ([core-utils][12]).
 * install [nasm][9] via your package manager
 * clone PLL from codeberg/github/gitflic into `/usr/src/PLL`  
 or if gentoo, use the [ebuild][16] in my [overlay][15]
-* use a partition editor (fdisk, parted, etc) to install a [GPT][4]
+* use a partition editor ([fdisk][11], [parted][22], etc) to install a [GPT][4]
 (GUID partiton table) to your target disk (e.g. /dev/sdb):  
 	`$ fdisk /dev/sdb`  
 	create at least one partition large enough to contain your kernel.
@@ -119,7 +119,7 @@ if an initmpfs is needed, compile it into the kernel
 ## “[enhanced BIOS][14]” calls.
 
 If your BIOS supports [enhanced BIOS][14] calls, PLL will detect this
-and use Logical Block Addresses [LBA][18] for disk read/write. If not,
+and use Logical Block Addresses [LBA][18] reading from disk. If not,
 PLL will use the older “Cylinder/Head/Sector” ([CHS][19]) addressing.
 This later code is currently using only a 16 bit [LBA][18], so only the
 top 33.5MB of the disk are accessible to load a kernel from. Linux
@@ -146,7 +146,7 @@ but it would never achieve the reach of [LBA][18], which is 48bits.
 [8]: https://en.wikipedia.org/wiki/Volume_boot_record
 [9]: https://www.nasm.us/
 [10]: https://www.skarnet.org/software/execline/
-[11]: https://github.com/util-linux/util-linux
+[11]: https://www.kernel.org/pub/linux/utils/util-linux/
 [12]: https://www.gnu.org/software/coreutils/
 [13]: https://en.wikipedia.org/wiki/UEFI_CSM#CSM_booting
 [14]: https://en.wikipedia.org/wiki/Enhanced_BIOS#Enhanced_BIOS
@@ -157,3 +157,4 @@ but it would never achieve the reach of [LBA][18], which is 48bits.
 [19]: https://en.wikipedia.org/wiki/Cylinder-head-sector
 [20]: https://www.ctyme.com/intr/int-13.htm
 [21]: https://www.ctyme.com/intr/int-16.htm
+[22]: https://www.gnu.org/software/parted/

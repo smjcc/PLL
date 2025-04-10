@@ -231,9 +231,7 @@ disk_read:
 	mov	si, da_pack
 	mov	ah, 0x42
 	mov	dl, [boot_drive]
- 	push	word [xferblocks]
 	int	0x13
- 	pop	bx
 
 	mov	al, HDDERR
 	jc	short err_al

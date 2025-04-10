@@ -39,7 +39,7 @@ locations.  The [execline][10] install script `PLLinstall` will
 compile PLL appropriately for your [GPT][4], and write the PLL sectors
 to the disk if instructed to do so.
 
-## `PLL=v.v.v-xx.n` Selecting the kernel load partition.
+## `PLL=v.v.v-xx.n` Selecting the kernel load partition
 
 The kernel command line stored in LBA0, is preloaded with
 `PLL=v.v.v-xx.n`, where `v` are version numbers, and `xx` is replaced
@@ -66,7 +66,7 @@ with the partition the kernel was actualled loaded from.
 ### In the case of `+`
 
 The kernel will be loaded from the partion number following the `+`
-(at the `n` position) in the `PLL=` command option..
+(at the `n` position) in the `PLL=` command option.
 
 ### In all other cases
 
@@ -105,16 +105,15 @@ or if gentoo, use the [ebuild][16] in my [overlay][15]
 	`$ fdisk /dev/sdb`  
 	create at least one partition large enough to contain your kernel.
 (e.g. `/dev/sdb1` )
-* compile a suitable kernel for your hardware  
-if an initmpfs is needed, compile it into the kernel
-* write your kernel into the partiton:  
-	`$ dd if=/boot/vmlinuz of=/dev/sdb1`
 * run the PLLinstall script to write the boot sectors:  
 	`$ cd /usr/src/PLL`  
 	`$ ./PLLinstall /dev/sdb`  
 this will read the [GPT][4], compile PLL to fit, and
 (if invoked with --write) write the sectors to the disk
-
+* compile a suitable kernel for your hardware  
+if an initmpfs is needed, compile it into the kernel
+* write your kernel into the partiton:  
+	`$ dd if=/boot/vmlinuz of=/dev/sdb1`
 * The disk should now be bootable by a [legacy boot BIOS][13]
 
 ## “[enhanced BIOS][14]” calls.

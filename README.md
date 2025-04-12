@@ -46,9 +46,9 @@ The kernel command line stored in LBA0, is preloaded with
 at boot time with the BIOS number of the boot device. This command
 line option must exist and must be first.
 
-One of three possible boot scenarios are selected by what character
+One of three possible boot scenarios is selected by which character
 follows the `xx` in the `PLL=` option (`.` by default)  
-These three cases are `.`, `+`, and any other character:
+The three possible cases are `.`, `+`, and any other character:
 
 ### In the case of `.`
  

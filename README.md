@@ -52,7 +52,7 @@ The three possible cases are `.`, `+`, and any other character:
 
 ### In the case of `.`
  
-At boot time, state of the keyboard shift keys determine which
+At boot time, the state of the keyboard shift keys determines which
 partition the kernel will be loaded from:
 
 * no shift keys are down: partition 1 is selected.
@@ -61,7 +61,7 @@ partition the kernel will be loaded from:
 * an 'alt' key is down:	partition 4 is selected.
 
 for each of these cases, the `n` in the `PLL=` option will be replaced
-with the partition number that the kernel was actualled loaded from.
+with the partition number that the kernel was actually loaded from.
 
 ### In the case of `+`
 

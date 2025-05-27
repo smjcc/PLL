@@ -17,8 +17,8 @@ PLL does not need nor use [UEFI][3]; it presumes a [GPT][4] for simplicity.
 I chose [GPT][4] because it supports numerous partitions, as well as
 partition names and [UUID][5]s.
 
-PLL loads and boots a kernel directly from a partition.  The partitioun
-contain only the kernel, no filesystem. (though the kernel can of course
+PLL loads and boots a kernel directly from a partition.  The partition
+contains only the kernel, no filesystem. (although the kernel can of course
 contain an [initmpfs][6]).
 
 PLL supports a [kernel command line][7] in the [boot sector][8], and
